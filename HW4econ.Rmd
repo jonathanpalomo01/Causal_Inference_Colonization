@@ -1,0 +1,224 @@
+---
+title: "Homework 4"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+<!-- knitr global options -->
+```{r, include = FALSE}
+knitr::opts_chunk$set(comment=NA, fig.width=4.5, fig.height=3.5, fig.align = 'center')
+```
+
+```{r}
+library(ivreg)
+library(dplyr)
+library(ggplot2)
+library(randomForest)
+```
+
+# Introduction
+In this homework you will replicate a well known study by Acemoglu, Johnson and 
+Robinson (AJR, 2001) on the effect of political institutions on economic development.
+This is a very important and much debated question in the fields of both 
+economics and political science. The article is posted on Canvas. 
+
+AJR knew that the getting a causal effect of institutions on economic development
+is problematic due to confounding. So they found a clever instrument for this purpose:
+Mortality rates of colonial settlers in colonies.
+
+# Exercise \#1
+1. Read the introduction of AJR and explain why the instrument `settler mortality` 
+satisfies the IV assumptions. Also explain why these assumptions are more likely 
+to be satisfied if controls are included in the IV setting.
+
+[Note: When the paper was written the differences between exclusion and random
+assignment assumptions were not well appreciated. So you might note that what is referred
+to as the exclusion restriction is sometimes actually the random assignment 
+assumption]
+
+AJR satisfies exclusion restriction settler mortality through showing a flow chart of settler mortality -> settlements -> early institutions -> current institutions -> current performance, which shows how settler mortality, our IV, is affecting current performance, our outcome, through treatment, settlements, early institutions, and current institutions. The random assignment assumption is satisfied by eliminating the potential confounder of European settler mortality rate 100 years ago because this has no direct effect on our outcome, current performance/GDP. Lastly the monotonicity assumption is safely assumed for this study because every settler must take the treatment (colonial development) regardless of choice. A control in this setting is the disease environment, but this doesn't directly affect the outcome; it still makes random assignment plausible because European mortality rate went up due to diseases like malaria and yellow fever, but indigenous populations did not.
+
+2. How is the quality of current institutions measured in the paper?
+
+They are measured with GDP.
+
+# Exercise \#2
+The dataset `AJR.RDS` contains all the variables that were used in the study.
+There is a short explanation of each variable below its name.
+
+You need to know the following: The analysis is applied on the subset of countries
+with value 1 in `baseco`. The instrument is `logem4`, the treatment is `avexpr`, 
+and outcome is `logpgp95`. All the other variables (apart from `baseco` and
+`shortnam`, which you will drop below) are possible IV confounders, and I will term them covariates.
+
+Most variable names are straightforward: I will just note that `avelf` stands to 
+ethno-linguistic fragmentation, which measures how divided the country is on 
+ethnic and linguistic lines. There are also a number of temperature, humidity, soil 
+and mineral variables, all standing for physical characteristics of the country.
+
+1. Download the dataset from the RDS file `AJR.RDS`. Filter all observations with
+`baseco == 1` (these are the only countries used in the analysis) and remove the 
+columns `baseco` and `shortnam`. 
+
+2. Run a linear regression of `logpgp95` on `avexpr`. Does it give the causal 
+effect of institutions on growth? If not, you should give some examples of confounders.
+
+The first linear regression does not imply any causal effect of institutions on growth, it gives correlation between the two and evidence of such because the p-value is very low. Through looking at 'avelf' added to our regression, we see heavy significance on it; a causal affect can be the lack of communication between people in this country, therefore, lowering the net production of the country. By running a regression with temp1 as a variable we see mild significance here, therefore, it can be a potential confounder against gdp; a causal explanation could be that temperature affects crops which can affect agricultural exports of a country.
+
+3. Run an IV regression instrumenting `avexpr` with `logem4` and without using 
+any covariates. Compare your estimate with that in part (2) above.
+
+The LATE computed in the IV regression is 0.9443, compared to the 0.52211 calculated in OLS. It is a larger effect of the treatment compared to the effect calculated in 2.
+
+4. Run an IV regression instrumenting `avexpr` with `logem4`, while controlling 
+all the covariates linearly. Compare your estimate with that in part (3)
+
+The LATE computed in the IV regression is 0.742622, a smaller estimate than in the previous part, controlling from all covariates.
+
+1. Data cleaning
+```{r}
+AJR <- readRDS("AJR.rds")
+AJR2 <- AJR %>% 
+  filter(baseco == 1) %>% 
+  select(-baseco, -shortnam)
+AJR2
+```
+2-4. Run Regressions
+The first linear regression does not imply any causal effect of institutions on growth, it gives correlation between the two and evidence of such because the p-value is very low.
+```{r}
+# 2
+modelLm1 <- lm(logpgp95 ~ avexpr, data = AJR2)
+modelLm2 <- lm(logpgp95 ~ avexpr + temp1, data = AJR2)
+modelLm3 <- lm(logpgp95 ~ avexpr + avelf, data = AJR2)
+summary(modelLm1)
+summary(modelLm2)
+summary(modelLm3)
+
+# 3
+modelIV1 <- ivreg(logpgp95 ~ avexpr | logem4, data = AJR2)
+summary(modelIV1)
+
+# 4
+modelIV2 <- ivreg(logpgp95 ~ avexpr + . | logem4 + ., 
+                  data = AJR2)
+summary(modelIV2)
+```
+
+
+# Exercise \#3
+We will now derive double (actually triple) ML methods that allow for large numbers
+of IV controls. The 2SLS model is given as follows: Let $Z$ denote the instrument, 
+$D$ the treatment, $Y$ the outcome and $X$ the set of controls. We assume that $X$
+are all the possible IV confounders, so $Z$ is as good as randomly assigned. In math, it means $Z$ is independent of $Y(1), Y(0)$) given $X$.
+
+In the lectures, we have seen that the first stage is 
+$$ 
+D = \pi_0Z + h(X) + v; \quad E[v \vert Z,X] =0.
+$$
+Here $\pi_0$ is some constant and $h(X)$ is an unknown function of covariates (there
+could be lots of them). The first stage can be interpreted causally because $Z$ is
+as good as randomly assigned given $X$. So we can interpret $\pi_0$ as the causal effect
+of increasing $Z$ by a single unit on the treatment. 
+
+The second stage is 
+$$
+Y = \theta_0 D + f(X) + \epsilon; \quad E[\epsilon \vert Z,X] =0.
+$$
+The idea behind this is similar to the derivation of the second stage in Lecture 14 (with the complication being that we have to account for $X$). For 0.1 bonus points, you can try to derive this as we did in that lecture!
+
+Note that we have to add a function of $X$ in the model because $X$ can affect $Y$. The term $\theta_0$ is the causal effect of interest, while $f(X)$ is an unknown function. 
+
+
+
+1. Substitute the expression for $D$ from the first stage into the second stage. 
+Use this to show that 
+$$
+E[Y \vert X] = \theta_0 \pi_0 E[Z \vert X] + \theta_0 h(X) + f(X).
+$$
+Substitute the expressions for $h(X)$ and $f(X)$ from the first two stages into the above
+to show that 
+$$
+e^{(x)}_y = \theta_0 \pi_0 e^{(x)}_z + \theta_0 v + \epsilon,
+$$
+where $e^{(x)}_y = Y - E[Y \vert X]$, and $e^{(x)}_z = Z - E[Z \vert X]$. 
+
+2. From the first stage, show that 
+$$
+E[D \vert Z,X] - E[D \vert X] = \pi_0 e^{(x)}_z.
+$$
+
+3. Define the variable
+$$
+\Delta^{(z,x)} = E[D \vert Z,X] - E[D \vert X].
+$$
+From the results in parts (1) and (2), argue that we can estimate $\theta_0$ by
+a simple regression of $e^{(x)}_y$ on $\Delta^{(z,x)}$. Explain how this implies
+one can estimate $\theta_0$ using ML. Your suggestion should consist of three ML
+computations. 
+
+So you get $e^{(x)}_y$ by using ML with the formula we know already, and use ML to get $e^{(x)}_z$ with the formula we already know. Lastly would be a regression to get $\theta_0$, which we can perform ridge or Lasso to make it ML.
+
+# Exercise \#4
+Apply the triple ML method you found in Question 3 on the AJR dataset. Compare 
+your results with the IV estimates in Q2. Your ML computations should involve
+Random Forests and cross-fitting. You can use the default value of `mtry`. 
+
+The IV estimate using the triple ML method is 0.70499, which is in between the estimates we found for number 2-3 and 2-4. This result enforces what we've learned from our other models in that there is a positive effect on protection from expropriation and a country's GDP. In the IV regression for part 2-3, the model was too naive in not having the covariates, which bolstered it's effect on GDP, while in the IV regression for part 2-4, adding all the covariates made it too rigid of a model and showed less effect on GDP.
+```{r}
+# omit any NAs from our data
+AJR3 <- na.omit(AJR)
+
+# logpgp95 as our outcome, logem as instrument
+# compute pred errors for outcome first
+set.seed(2022)
+
+N = nrow(AJR3)
+nfolds = 10
+
+#initialize arrays
+e_y = rep(0, N)
+del = rep(0, N)
+#randomly shuffle the data
+Schools = AJR3[sample(N),]
+
+#Create equally sized partitions of the indices
+folds = cut(seq(1, nrow(AJR3)), breaks = nfolds, labels=FALSE)
+
+#Perform cross validation with nfolds
+for(i in 1:nfolds){
+    #Segment data by fold using the which() function 
+    indices = which(folds==i)
+    testData = AJR3[indices, ]
+    trainData = AJR3[-indices, ]
+    
+    #compute prediction errors for outcomes
+    rf.AJR.outcomes = randomForest(logpgp95 ~ . - logem4 - avexpr, 
+                                   data = trainData,
+                                   ntree = 1000)
+    
+    e_y[indices] = testData$logpgp95 -
+      predict(rf.AJR.outcomes, newdata = testData)
+    
+    #compute prediction errors for delta^zx
+    # first do E[D|Z,X]
+    rf.deltaZ = randomForest(avexpr ~. - logpgp95,
+                                    data = trainData,
+                                    ntree = 1000)
+    
+    # no E[D,X]
+    rf.deltaX = randomForest(avexpr ~ . - logpgp95 - logem4,
+                             data = trainData,
+                             ntree = 1000)
+    
+    del[indices] = predict(rf.deltaZ, newData = testData) - predict(rf.deltaX, newData = testData)
+}
+
+residuals = tibble(e_y = e_y, del = del)
+
+reg.fit = lm(e_y ~ del, data = residuals)
+summary(reg.fit)
+
+```
+
+For this question you may use `na.omit` to get rid of any missing data. 
